@@ -24,12 +24,14 @@ from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "automation" / "research_brief_config.json"
 BRIEF_DIR = ROOT / "research_briefs"
 APP_NAME = "research-brief-actions/1.0"
+SEEN_PATH = BRIEF_DIR / "seen_dois.json"
 
 
 def load_config() -> dict[str, Any]:
@@ -227,6 +229,98 @@ def fetch_ieee(config: dict[str, Any]) -> list[dict[str, Any]]:
     return [p for p in papers if p.get("title")]
 
 
+def fetch_open_full_text(paper: dict[str, Any], config: dict[str, Any]) -> tuple[str, str]:
+    """Return Europe PMC open full text when available, otherwise the abstract."""
+    doi = paper.get("doi", "")
+    if doi:
+        params = urllib.parse.urlencode({"query": f'DOI:"{doi}"', "format": "json", "pageSize": "1"})
+        result = http_json("https://www.ebi.ac.uk/europepmc/webservices/rest/search?" + params, config)
+        rows = (result or {}).get("resultList", {}).get("result", [])
+        pmcid = rows[0].get("pmcid") if rows else None
+        if pmcid:
+            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/{urllib.parse.quote(pmcid)}/fullTextXML"
+            req = urllib.request.Request(url, headers={"User-Agent": user_agent(config)})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    root = ET.fromstring(resp.read())
+                text = normalize_text(" ".join("".join(node.itertext()) for node in root.findall(".//body//p")))
+                if len(text) >= 1000:
+                    return text[:60000], f"Europe PMC open full text ({pmcid})"
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ET.ParseError):
+                pass
+    abstract = paper.get("abstract", "")
+    return abstract[:20000], "title and abstract only"
+
+
+def analyze_with_github_models(paper: dict[str, Any], source_text: str, source_label: str, config: dict[str, Any]) -> str:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return "**AI 深度总结未生成：** GitHub Actions 未提供 GITHUB_TOKEN。"
+    model = os.getenv("AI_MODEL") or config.get("ai_model", "openai/gpt-4.1")
+    prompt = f"""请仅依据下方论文元数据和可用文本，用中文生成准确、简洁的精读卡。不得补全材料中没有的信息；无法核实时必须写“根据现有公开信息无法确认”。不要把相关性写成因果，不要把预测写成事实，不要把实验条件结果泛化。作者明确提到的局限只有在材料确实包含时才可陈述。
+
+严格使用以下结构：
+#### 二、先让我自己思考
+先提醒读者写下答案，再根据题目和摘要提出3个具体问题：研究问题、可能方法、最需核对证据的结论。此部分必须出现在正式总结之前。
+#### 三、论文内容
+研究背景与核心问题；研究方法和实验设计；3个最重要发现；主要创新点；作者明确提到的局限；真正能够证明什么；目前还不能证明什么。
+#### 四、证据判断
+分别列出：作者直接观察或实验验证的结果；作者根据结果作出的解释；基于论文提出的延伸建议。
+#### 五、对我的实际帮助
+1—2个可借鉴方法或分析思路；1个继续追踪的问题；1项可立即完成的行动。
+#### 六、保留我的独立思考
+提出3个具体问题：是否认同结论；最强与最弱证据；如何改变或补充原有理解。不要替读者形成最终观点。
+
+论文题目：{paper.get('title')}
+作者：{paper.get('authors')}
+期刊：{paper.get('venue')}
+发表时间：{paper.get('published')}
+DOI：{paper.get('doi')}
+材料范围：{source_label}
+可用文本：
+{source_text}
+"""
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "你是严谨的生物医学论文方法学编辑。只依据用户提供的论文文本，清楚区分观察、作者解释和你的建议。"},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 3200,
+    }, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        "https://models.github.ai/inference/chat/completions", data=body, method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2026-03-10",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        output = payload.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        return output or "**AI 深度总结未生成：** API 未返回可用文本。"
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+        print(f"warning: GitHub Models analysis failed for {paper.get('doi') or paper.get('title')}: {exc}", file=sys.stderr)
+        return "**AI 深度总结未生成：** 根据本次运行信息无法确认 API 结果。"
+
+
+def seen_keys() -> set[str]:
+    try:
+        return set(json.loads(SEEN_PATH.read_text(encoding="utf-8")))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def save_seen(papers: list[dict[str, Any]], previous: set[str]) -> None:
+    keys = list(previous | {p.get("doi") or title_key(p.get("title", "")) for p in papers})
+    SEEN_PATH.parent.mkdir(exist_ok=True)
+    SEEN_PATH.write_text(json.dumps(sorted(k for k in keys if k), ensure_ascii=False), encoding="utf-8")
+
+
 def dedupe(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -394,6 +488,7 @@ def make_markdown(papers: list[dict[str, Any]], config: dict[str, Any], run_date
             reasons = ", ".join(paper.get("reasons", [])) or "semantic match"
             url = paper.get("url") or google_scholar_link(paper["title"])
             lines.append(f"### {idx}. {paper['title']}")
+            lines.append("#### 一、论文基本信息")
             lines.append(f"- Venue: {paper.get('venue') or 'Unknown'} ({paper.get('source')})")
             lines.append(f"- Authors: {compact_list(paper.get('authors', 'Unknown'))}")
             lines.append(f"- Affiliations: {compact_list(paper.get('affiliations', 'Metadata unavailable'), sep=';', limit=2)}")
@@ -404,6 +499,9 @@ def make_markdown(papers: list[dict[str, Any]], config: dict[str, Any], run_date
             lines.append(f"- Relevance: {score_label(score)}, {score:.1f}; matched: {reasons}")
             lines.append(f"**{why}:** {focus_note(paper, config)}")
             lines.append(f"**{action}:** {action_note(score)}")
+            lines.append(f"- 可用材料范围: {paper.get('analysis_source', 'title and abstract only')}")
+            lines.append("")
+            lines.append(paper.get("ai_analysis", "**AI 深度总结未生成。**"))
             lines.append("")
 
         if remaining:
@@ -726,6 +824,14 @@ def main() -> int:
     ranked = rank_papers(dedupe(papers), config)
     relevant = [p for p in ranked if p.get("score", 0) > 0 and is_domain_match(p, config)]
     ranked = [p for p in relevant if p.get("score", 0) >= 4] or relevant or [p for p in ranked if p.get("score", 0) > 0]
+    previous = seen_keys()
+    fresh = [p for p in ranked if (p.get("doi") or title_key(p.get("title", ""))) not in previous]
+    ranked = fresh or ranked
+    for paper in ranked[:int(config.get("max_papers", 2))]:
+        source_text, source_label = fetch_open_full_text(paper, config)
+        paper["analysis_source"] = source_label
+        paper["ai_analysis"] = analyze_with_github_models(paper, source_text, source_label, config)
+    save_seen(ranked[:int(config.get("max_papers", 2))], previous)
 
     markdown = make_markdown(ranked, config, run_date)
     bibtex = make_bibtex(ranked, int(config.get("max_papers", 8))) if config.get("generate_bibtex") else ""

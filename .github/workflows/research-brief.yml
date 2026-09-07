@@ -29,6 +29,7 @@ on:
 
 permissions:
   contents: write
+  models: read
 
 jobs:
   generate-brief:
@@ -41,6 +42,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Restore previously recommended papers
+        uses: actions/cache@v4
+        with:
+          path: research_briefs/seen_dois.json
+          key: research-brief-seen-${{ github.run_id }}
+          restore-keys: |
+            research-brief-seen-
 
       - name: Generate research brief
         env:
@@ -57,6 +66,8 @@ jobs:
           SMTP_STARTTLS: ${{ secrets.SMTP_STARTTLS }}
           SMTP_RETRIES: ${{ secrets.SMTP_RETRIES }}
           RESEARCH_BRIEF_CONTACT_EMAIL: ${{ secrets.RESEARCH_BRIEF_CONTACT_EMAIL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AI_MODEL: openai/gpt-4.1
           IEEE_XPLORE_API_KEY: ${{ secrets.IEEE_XPLORE_API_KEY }}
           ZOTERO_API_KEY: ${{ secrets.ZOTERO_API_KEY }}
           ZOTERO_USER_ID: ${{ secrets.ZOTERO_USER_ID }}
