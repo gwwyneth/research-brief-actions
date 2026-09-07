@@ -102,3 +102,20 @@ jobs:
           fi
           python scripts/generate_research_brief.py --days-back "${DAYS_BACK}" ${EMAIL_FLAG} ${ZOTERO_FLAG}
 
+      - name: Upload generated brief for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brief-${{ github.run_id }}
+          path: |
+            research_briefs/*.md
+            research_briefs/*.bib
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Prepare model files for cache
+        if: always()
+        run: |
+          docker stop research-ollama || true
+          sudo chown -R "$(id -u):$(id -g)" "${RUNNER_TEMP}/ollama" || true
+
