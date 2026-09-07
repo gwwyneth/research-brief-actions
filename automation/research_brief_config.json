@@ -6,7 +6,7 @@
   "max_papers": 2,
   "language": "zh-CN",
   "email_subject_prefix": "每日神经基础研究论文精读",
-  "ai_model": "openai/gpt-4.1",
+  "ai_model": "qwen2.5:1.5b",
   "save_history": true,
   "generate_bibtex": true,
   "journals": [

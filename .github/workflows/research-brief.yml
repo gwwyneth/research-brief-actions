@@ -29,7 +29,6 @@ on:
 
 permissions:
   contents: write
-  models: read
 
 jobs:
   generate-brief:
@@ -51,6 +50,22 @@ jobs:
           restore-keys: |
             research-brief-seen-
 
+      - name: Cache local AI model
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ollama
+          key: ollama-qwen2.5-1.5b-v1
+
+      - name: Start local AI model
+        run: |
+          mkdir -p "${RUNNER_TEMP}/ollama"
+          docker run -d --name research-ollama -p 11434:11434 -v "${RUNNER_TEMP}/ollama:/root/.ollama" ollama/ollama:latest
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          docker exec research-ollama ollama pull qwen2.5:1.5b
+
       - name: Generate research brief
         env:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
@@ -66,8 +81,8 @@ jobs:
           SMTP_STARTTLS: ${{ secrets.SMTP_STARTTLS }}
           SMTP_RETRIES: ${{ secrets.SMTP_RETRIES }}
           RESEARCH_BRIEF_CONTACT_EMAIL: ${{ secrets.RESEARCH_BRIEF_CONTACT_EMAIL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AI_MODEL: openai/gpt-4.1
+          AI_MODEL: qwen2.5:1.5b
+          OLLAMA_URL: http://127.0.0.1:11434/api/chat
           IEEE_XPLORE_API_KEY: ${{ secrets.IEEE_XPLORE_API_KEY }}
           ZOTERO_API_KEY: ${{ secrets.ZOTERO_API_KEY }}
           ZOTERO_USER_ID: ${{ secrets.ZOTERO_USER_ID }}

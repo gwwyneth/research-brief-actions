@@ -252,11 +252,9 @@ def fetch_open_full_text(paper: dict[str, Any], config: dict[str, Any]) -> tuple
     return abstract[:20000], "title and abstract only"
 
 
-def analyze_with_github_models(paper: dict[str, Any], source_text: str, source_label: str, config: dict[str, Any]) -> str:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        return "**AI 深度总结未生成：** GitHub Actions 未提供 GITHUB_TOKEN。"
-    model = os.getenv("AI_MODEL") or config.get("ai_model", "openai/gpt-4.1")
+def analyze_with_local_model(paper: dict[str, Any], source_text: str, source_label: str, config: dict[str, Any]) -> str:
+    model = os.getenv("AI_MODEL") or config.get("ai_model", "qwen2.5:1.5b")
+    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat")
     prompt = f"""请仅依据下方论文元数据和可用文本，用中文生成准确、简洁的精读卡。不得补全材料中没有的信息；无法核实时必须写“根据现有公开信息无法确认”。不要把相关性写成因果，不要把预测写成事实，不要把实验条件结果泛化。作者明确提到的局限只有在材料确实包含时才可陈述。
 
 严格使用以下结构：
@@ -278,7 +276,7 @@ def analyze_with_github_models(paper: dict[str, Any], source_text: str, source_l
 DOI：{paper.get('doi')}
 材料范围：{source_label}
 可用文本：
-{source_text}
+{source_text[:24000]}
 """
     body = json.dumps({
         "model": model,
@@ -286,25 +284,19 @@ DOI：{paper.get('doi')}
             {"role": "system", "content": "你是严谨的生物医学论文方法学编辑。只依据用户提供的论文文本，清楚区分观察、作者解释和你的建议。"},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
-        "max_tokens": 3200,
+        "stream": False,
+        "options": {"temperature": 0.2, "num_predict": 2600, "num_ctx": 16384},
     }, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
-        "https://models.github.ai/inference/chat/completions", data=body, method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2026-03-10",
-        },
+        ollama_url, data=body, method="POST", headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
-        output = payload.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        output = payload.get("message", {}).get("content", "").strip()
         return output or "**AI 深度总结未生成：** API 未返回可用文本。"
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
-        print(f"warning: GitHub Models analysis failed for {paper.get('doi') or paper.get('title')}: {exc}", file=sys.stderr)
+        print(f"warning: local model analysis failed for {paper.get('doi') or paper.get('title')}: {exc}", file=sys.stderr)
         return "**AI 深度总结未生成：** 根据本次运行信息无法确认 API 结果。"
 
 
@@ -830,7 +822,7 @@ def main() -> int:
     for paper in ranked[:int(config.get("max_papers", 2))]:
         source_text, source_label = fetch_open_full_text(paper, config)
         paper["analysis_source"] = source_label
-        paper["ai_analysis"] = analyze_with_github_models(paper, source_text, source_label, config)
+        paper["ai_analysis"] = analyze_with_local_model(paper, source_text, source_label, config)
     save_seen(ranked[:int(config.get("max_papers", 2))], previous)
 
     markdown = make_markdown(ranked, config, run_date)
