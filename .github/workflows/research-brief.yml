@@ -2,9 +2,8 @@
 
 on:
   schedule:
-    # Default: 08:30 UTC. Run scripts/configure_project.py or ask your AI assistant
-    # to convert your local send time to UTC and update this cron expression.
-    - cron: "30 8 * * *"
+    # 00:00 UTC = 08:00 Asia/Shanghai (UTC+8).
+    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
       days_back:
@@ -57,6 +56,7 @@ jobs:
           SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
           SMTP_STARTTLS: ${{ secrets.SMTP_STARTTLS }}
           SMTP_RETRIES: ${{ secrets.SMTP_RETRIES }}
+          RESEARCH_BRIEF_CONTACT_EMAIL: ${{ secrets.RESEARCH_BRIEF_CONTACT_EMAIL }}
           IEEE_XPLORE_API_KEY: ${{ secrets.IEEE_XPLORE_API_KEY }}
           ZOTERO_API_KEY: ${{ secrets.ZOTERO_API_KEY }}
           ZOTERO_USER_ID: ${{ secrets.ZOTERO_USER_ID }}

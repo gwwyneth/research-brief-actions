@@ -1,60 +1,47 @@
-﻿{
-  "recipient_email": "your.email@example.com",
-  "contact_email": "your.email@example.com",
+{
+  "recipient_email": "configured-via-github-secret",
+  "contact_email": "configured-via-github-secret",
   "timezone": "Asia/Shanghai",
-  "send_time_local": "08:30",
-  "max_papers": 8,
+  "send_time_local": "08:00",
+  "max_papers": 2,
   "language": "zh-CN",
+  "email_subject_prefix": "每日神经基础研究论文精读",
   "save_history": true,
   "generate_bibtex": true,
   "journals": [
-    "Nature",
-    "Science",
-    "Cell",
-    "IEEE Transactions on Services Computing",
-    "ACM Transactions on Computer Systems"
+    "Nature Neuroscience", "Nature Medicine", "Nature Aging", "Neuron", "Brain",
+    "Annals of Neurology", "Movement Disorders", "Acta Neuropathologica",
+    "Molecular Neurodegeneration", "Alzheimer's & Dementia", "Cancer Cell",
+    "Nature Cancer", "Cancer Discovery"
   ],
   "research_profile": {
-    "summary": "Replace this with your research interests. Example: trustworthy AI systems, scientific machine learning, data-intensive computing, or your own topic.",
-    "seed_papers": [
-      "Replace with 2-5 papers that represent your taste"
-    ],
+    "summary": "优先筛选帕金森病和阿尔茨海默病的基础研究方法、神经内科基础研究及值得长期追踪的问题；同时关注可借鉴实验设计、组学分析、因果验证和转化研究方法的高水平肿瘤原创论文。优先最近7天正式发表的原创研究，近期不足时再考虑近3年的重要论文；宁缺毋滥。",
+    "seed_papers": [],
     "core_topics": [
-      "artificial intelligence",
-      "machine learning",
-      "computer systems",
-      "data science"
+      "Parkinson disease", "Alzheimer disease", "neurodegeneration", "neurology",
+      "alpha-synuclein", "amyloid beta", "tau pathology", "microglia",
+      "neuroinflammation", "brain tumor", "cancer biology"
     ],
     "method_keywords": [
-      "optimization",
-      "reinforcement learning",
-      "probabilistic modeling",
-      "causal inference",
-      "large language model"
+      "single-cell RNA sequencing", "spatial transcriptomics", "multi-omics",
+      "proteomics", "CRISPR", "organoid", "animal model", "lineage tracing",
+      "causal inference", "longitudinal cohort", "biomarker validation"
     ],
     "objective_keywords": [
-      "accuracy",
-      "latency",
-      "cost",
-      "robustness",
-      "interpretability"
+      "mechanism", "pathogenesis", "therapeutic target", "disease progression",
+      "drug resistance", "early diagnosis", "translation", "validation"
     ],
     "domain_keywords": [
-      "artificial intelligence",
-      "machine learning",
-      "computer science",
-      "systems",
-      "data",
-      "network",
-      "biology",
-      "medicine",
-      "materials",
-      "physics"
+      "Parkinson", "Alzheimer", "neurodegeneration", "neurology", "neuroscience",
+      "brain", "neuron", "glia", "cancer", "tumor", "oncology"
     ]
   },
   "query_templates": [
-    "artificial intelligence optimization robustness",
-    "machine learning systems resource allocation",
-    "scientific machine learning data-driven discovery"
+    "Parkinson disease mechanism neurodegeneration original research",
+    "Alzheimer disease mechanism amyloid tau original research",
+    "neurology basic research single-cell spatial transcriptomics",
+    "neuroinflammation microglia neurodegenerative disease",
+    "high impact cancer research experimental method multi-omics CRISPR",
+    "tumor biology single-cell spatial transcriptomics mechanism"
   ]
 }
