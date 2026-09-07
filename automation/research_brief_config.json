@@ -9,6 +9,23 @@
   "ai_model": "qwen2.5:1.5b",
   "save_history": true,
   "generate_bibtex": true,
+  "rotation": {
+    "themes": [
+      ["neuroinflammation", "microglia", "astrocyte", "inflammasome"],
+      ["autophagy", "lysosome", "proteostasis"],
+      ["mitochondria", "oxidative stress", "mitophagy"],
+      ["amyloid beta", "tau", "alpha-synuclein", "protein aggregation"],
+      ["ferroptosis", "pyroptosis", "apoptosis", "cell death"],
+      ["metabolism", "insulin signaling", "lipid metabolism", "immunometabolism"],
+      ["synapse", "synaptic plasticity", "neural circuit"],
+      ["blood-brain barrier", "neurovascular unit"],
+      ["gut-brain axis", "microbiome"],
+      ["epigenetics", "RNA regulation", "non-coding RNA"]
+    ],
+    "pairing_modes": ["pd_ad", "mechanism_method", "best_two", "same_pathway_pd_ad"]
+  },
+  "minimum_evidence_types": 2,
+  "allow_method_innovation_with_one_evidence_type": true,
   "journals": [
     "Nature Neuroscience", "Nature Medicine", "Nature Aging", "Neuron", "Brain",
     "Annals of Neurology", "Movement Disorders", "Acta Neuropathologica",

@@ -313,6 +313,65 @@ def save_seen(papers: list[dict[str, Any]], previous: set[str]) -> None:
     SEEN_PATH.write_text(json.dumps(sorted(k for k in keys if k), ensure_ascii=False), encoding="utf-8")
 
 
+def daily_rotation(config: dict[str, Any], run_date: dt.date) -> tuple[list[str], str]:
+    rotation = config.get("rotation", {})
+    themes = rotation.get("themes") or [["neurodegeneration"]]
+    modes = rotation.get("pairing_modes") or ["best_two"]
+    index = run_date.toordinal()
+    return themes[index % len(themes)], modes[index % len(modes)]
+
+
+def evidence_types(text: str) -> set[str]:
+    groups = {
+        "cell": ["cell line", "primary cell", "culture", "in vitro", "ipsc", "organoid"],
+        "animal": ["mouse", "mice", "murine", "rat", "in vivo", "animal model"],
+        "human_sample": ["human brain", "postmortem", "patient tissue", "cerebrospinal fluid", "csf", "patient-derived"],
+        "molecular": ["western blot", "immunofluorescence", "immunohistochemistry", "qpcr", "elisa", "proteomics", "transcriptomics"],
+        "causal_intervention": ["knockout", "knockdown", "overexpression", "crispr", "inhibitor", "agonist", "antagonist", "rescue"],
+    }
+    lowered = text.lower()
+    return {label for label, terms in groups.items() if any(term in lowered for term in terms)}
+
+
+def is_method_innovation(text: str, config: dict[str, Any]) -> bool:
+    lowered = text.lower()
+    strong_terms = ["novel method", "new method", "platform", "protocol", "spatial transcriptomics", "single-cell", "crispr screen", "lineage tracing"]
+    return any(term in lowered for term in strong_terms) and any(
+        term.lower() in lowered for term in config.get("research_profile", {}).get("method_keywords", [])
+    )
+
+
+def choose_by_pairing(papers: list[dict[str, Any]], mode: str, limit: int = 2) -> list[dict[str, Any]]:
+    def first_matching(term_list: list[str], excluded: set[int]) -> dict[str, Any] | None:
+        for paper in papers:
+            if id(paper) not in excluded and has_any(paper_text(paper), term_list):
+                return paper
+        return None
+
+    if mode in {"pd_ad", "same_pathway_pd_ad"}:
+        chosen: list[dict[str, Any]] = []
+        used: set[int] = set()
+        for terms in (["parkinson", "alpha-synuclein"], ["alzheimer", "amyloid", "tau"]):
+            paper = first_matching(terms, used)
+            if paper:
+                chosen.append(paper)
+                used.add(id(paper))
+        chosen.extend(p for p in papers if id(p) not in used)
+        return chosen[:limit]
+    if mode == "mechanism_method":
+        chosen = []
+        method_terms = ["method", "single-cell", "spatial transcriptomics", "crispr", "platform", "multi-omics"]
+        method = next((p for p in papers if has_any(paper_text(p) + " " + p.get("source_text", ""), method_terms)), None)
+        mechanism = next((p for p in papers if p is not method), None)
+        if mechanism:
+            chosen.append(mechanism)
+        if method:
+            chosen.append(method)
+        chosen.extend(p for p in papers if p not in chosen)
+        return chosen[:limit]
+    return papers[:limit]
+
+
 def dedupe(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -460,6 +519,8 @@ def make_markdown(papers: list[dict[str, Any]], config: dict[str, Any], run_date
         ]
 
     lines: list[str] = [title, "", summary]
+    if config.get("_daily_focus"):
+        lines.append(f"今日轮换策略: {config['_daily_focus']}。")
     if selected:
         top = selected[0]
         lines.append(f"Top pick: {top['title']} ({top.get('venue') or 'Unknown'}, {top.get('published') or 'date unknown'}).")
@@ -816,14 +877,34 @@ def main() -> int:
     ranked = rank_papers(dedupe(papers), config)
     relevant = [p for p in ranked if p.get("score", 0) > 0 and is_domain_match(p, config)]
     ranked = [p for p in relevant if p.get("score", 0) >= 4] or relevant or [p for p in ranked if p.get("score", 0) > 0]
+    run_date = dt.datetime.now(ZoneInfo(config.get("timezone", "UTC"))).date()
+    theme, pairing_mode = daily_rotation(config, run_date)
+    config["_daily_focus"] = f"通路={', '.join(theme)}；搭配={pairing_mode}；最低证据类型={config.get('minimum_evidence_types', 2)}"
+    for paper in ranked:
+        if has_any(paper_text(paper), theme):
+            paper["score"] = paper.get("score", 0) + 4.0
+    ranked.sort(key=lambda p: (p.get("score", 0), p.get("published", "")), reverse=True)
     previous = seen_keys()
     fresh = [p for p in ranked if (p.get("doi") or title_key(p.get("title", ""))) not in previous]
-    ranked = fresh or ranked
-    for paper in ranked[:int(config.get("max_papers", 2))]:
+    candidates = fresh or ranked
+    qualified: list[dict[str, Any]] = []
+    minimum = int(config.get("minimum_evidence_types", 2))
+    for paper in candidates[:20]:
         source_text, source_label = fetch_open_full_text(paper, config)
         paper["analysis_source"] = source_label
-        paper["ai_analysis"] = analyze_with_local_model(paper, source_text, source_label, config)
-    save_seen(ranked[:int(config.get("max_papers", 2))], previous)
+        paper["source_text"] = source_text
+        evidence = evidence_types(paper_text(paper) + " " + source_text)
+        paper["evidence_types"] = sorted(evidence)
+        relaxed = config.get("allow_method_innovation_with_one_evidence_type", True) and is_method_innovation(paper_text(paper) + " " + source_text, config)
+        if len(evidence) >= minimum or (relaxed and len(evidence) >= 1):
+            qualified.append(paper)
+        if len(qualified) >= 8:
+            break
+    ranked = choose_by_pairing(qualified, pairing_mode, int(config.get("max_papers", 2)))
+    for paper in ranked:
+        source_text = paper.pop("source_text", "")
+        paper["ai_analysis"] = analyze_with_local_model(paper, source_text, paper.get("analysis_source", "title and abstract only"), config)
+    save_seen(ranked, previous)
 
     markdown = make_markdown(ranked, config, run_date)
     bibtex = make_bibtex(ranked, int(config.get("max_papers", 8))) if config.get("generate_bibtex") else ""
