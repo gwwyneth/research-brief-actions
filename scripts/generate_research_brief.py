@@ -236,6 +236,9 @@ def fetch_open_full_text(paper: dict[str, Any], config: dict[str, Any]) -> tuple
         params = urllib.parse.urlencode({"query": f'DOI:"{doi}"', "format": "json", "pageSize": "1"})
         result = http_json("https://www.ebi.ac.uk/europepmc/webservices/rest/search?" + params, config)
         rows = (result or {}).get("resultList", {}).get("result", [])
+        if rows:
+            pub_types = rows[0].get("pubTypeList", {}).get("pubType", [])
+            paper["publication_types"] = [normalize_text(value) for value in pub_types]
         pmcid = rows[0].get("pmcid") if rows else None
         if pmcid:
             url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/{urllib.parse.quote(pmcid)}/fullTextXML"
@@ -350,6 +353,7 @@ def is_excluded_non_original(paper: dict[str, Any]) -> bool:
         "study protocol", "trial protocol", "clinical trial protocol",
         "current understanding", "future directions", "recent advances",
         "an overview", "state of the art", "from molecular mechanisms to therapeutic strategies",
+        "a molecular perspective", "a clinical perspective", "perspectives on",
     ]
     abstract_patterns = [
         "in this review", "this review summarizes", "we review the", "we provide an overview",
@@ -362,6 +366,12 @@ def is_excluded_non_original(paper: dict[str, Any]) -> bool:
         or any(pattern in abstract for pattern in abstract_patterns)
         or (prediction_only and not experimental_markers)
     )
+
+
+def has_excluded_publication_type(paper: dict[str, Any]) -> bool:
+    joined = " ".join(paper.get("publication_types", [])).lower()
+    excluded = ["review", "meta-analysis", "clinical trial", "case reports", "practice guideline", "protocol"]
+    return any(term in joined for term in excluded)
 
 
 def choose_by_pairing(papers: list[dict[str, Any]], mode: str, limit: int = 2) -> list[dict[str, Any]]:
@@ -914,6 +924,8 @@ def main() -> int:
     minimum = int(config.get("minimum_evidence_types", 2))
     for paper in candidates[:20]:
         source_text, source_label = fetch_open_full_text(paper, config)
+        if has_excluded_publication_type(paper):
+            continue
         paper["analysis_source"] = source_label
         paper["source_text"] = source_text
         evidence = evidence_types(paper_text(paper) + " " + source_text)
