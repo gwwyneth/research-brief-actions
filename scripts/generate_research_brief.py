@@ -341,6 +341,29 @@ def is_method_innovation(text: str, config: dict[str, Any]) -> bool:
     )
 
 
+def is_excluded_non_original(paper: dict[str, Any]) -> bool:
+    title = paper.get("title", "").lower()
+    abstract = paper.get("abstract", "").lower()
+    title_patterns = [
+        "systematic review", "meta-analysis", "meta analysis", "scoping review",
+        "narrative review", "literature review", "case report", "case series",
+        "study protocol", "trial protocol", "clinical trial protocol",
+        "current understanding", "future directions", "recent advances",
+        "an overview", "state of the art", "from molecular mechanisms to therapeutic strategies",
+    ]
+    abstract_patterns = [
+        "in this review", "this review summarizes", "we review the", "we provide an overview",
+        "systematically reviewed", "meta-analysis was performed", "case report describes",
+    ]
+    prediction_only = any(term in title for term in ["prediction model", "machine learning prediction", "risk prediction"])
+    experimental_markers = evidence_types(title + " " + abstract)
+    return (
+        any(pattern in title for pattern in title_patterns)
+        or any(pattern in abstract for pattern in abstract_patterns)
+        or (prediction_only and not experimental_markers)
+    )
+
+
 def choose_by_pairing(papers: list[dict[str, Any]], mode: str, limit: int = 2) -> list[dict[str, Any]]:
     def first_matching(term_list: list[str], excluded: set[int]) -> dict[str, Any] | None:
         for paper in papers:
@@ -886,7 +909,7 @@ def main() -> int:
     ranked.sort(key=lambda p: (p.get("score", 0), p.get("published", "")), reverse=True)
     previous = seen_keys()
     fresh = [p for p in ranked if (p.get("doi") or title_key(p.get("title", ""))) not in previous]
-    candidates = fresh or ranked
+    candidates = [p for p in (fresh or ranked) if not is_excluded_non_original(p)]
     qualified: list[dict[str, Any]] = []
     minimum = int(config.get("minimum_evidence_types", 2))
     for paper in candidates[:20]:
