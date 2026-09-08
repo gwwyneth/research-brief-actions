@@ -2,8 +2,9 @@
 
 on:
   schedule:
-    # 00:00 UTC = 08:00 Asia/Shanghai (UTC+8).
-    - cron: "0 0 * * *"
+    # Start at 07:55 Asia/Shanghai so the 3-5 minute generation finishes near 08:00.
+    # Avoid minute 0, when GitHub's scheduled-job queue is typically busiest.
+    - cron: "55 23 * * *"
   workflow_dispatch:
     inputs:
       days_back:
